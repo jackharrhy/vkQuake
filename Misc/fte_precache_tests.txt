@@ -1,0 +1,87 @@
+FTE model precache regression checks
+===================================
+
+Problem
+
+With PEXT2_PREDINFO, FTE sends most models after serverinfo and before signon
+stage 1. Building vkQuake's renderer from serverinfo alone leaves the later
+brush models without lightmaps and vertex data. Rendering a stock health or
+ammo box then dereferences a NULL lightmap in R_FlushBatch.
+
+Models can also arrive or be replaced during play. The fix batches brush
+resource rebuilding after parsing incoming messages, waits for rendering/GPU
+work to finish, and rebuilds lightmaps, vertices, acceleration structures and
+their compute/indirect descriptor dependencies. It preserves map state and
+world SIMD allocations. All brush-resource passes use the same sparse,
+deduplicated model set. Static and active dynamic entities refresh their
+model references, including when no further entity snapshot arrives.
+
+The separate FTE NetQuake acceptance trailer omission is independent of this
+renderer bug. Fixing that handshake alone does not fix the rendering crash.
+
+Generate reproducible demos
+
+  python3 Misc/make_fte_precache_demos.py /tmp/fte-precache/id1
+
+Put registered Quake pak0.pak and pak1.pak in that id1 directory (symlinks are
+fine). Neither proprietary assets nor captured server traffic are generated
+or included in these fixtures. A graphics display and Vulkan driver are needed.
+
+Build and run, from the repository root:
+
+  meson setup build/fte-fix --buildtype=debug
+  meson compile -C build/fte-fix
+  ./build/fte-fix/vkquake -basedir /tmp/fte-precache -window -nosound \
+    +r_novis 1 +playdemo precache-late
+
+On macOS, use -Duse_vulkan_loader=disabled if linking MoltenVK directly.
+Repeat playback with the other precache-*.dem files. Use a bounded harness or
+quit manually; these synthetic demos are regression inputs, not gameplay demos.
+
+Cases
+
+  signon                 Deferred initial model list.
+  late                   New BSP and static entity after signon.
+  sparse                 New BSP after a gap in the model list.
+  duplicate              Two slots referring to one BSP.
+  static-first           Static entity before its model precache.
+  static-replaced        Replacement of an existing static entity's BSP.
+  repeated               Twelve replacements across successive frames.
+  dynamic-replaced       Replacement after an FTE entity update in one packet.
+  legacy-dynamic-replaced Same operation with a legacy entity update.
+  world-replaced         Changing the world slot must give a recoverable error.
+
+Successful cases print "precache-case: CASE". world-replaced must instead
+report "CL_ParsePrecache: cannot replace world model" on the main thread.
+Also exercise repeated with +r_tasks 0, +r_gpulightmapupdate 0, and +r_indirect 0.
+
+A surviving process alone does not prove the scene rendered correctly. For
+dynamic replacement, stop in R_DrawBrushModel with this LLDB condition:
+
+  !e->is_static && e->netstate.modelindex == 2 && \
+    cl.model_precache[2]->name[12] == 48
+
+The entity model must be maps/b_shell0.bsp and must equal cl.model_precache[2].
+The previous candidate still drew maps/b_shell1.bsp with a different pointer.
+The future timestamp in the snapshot permits checking this before another
+snapshot can resolve the model on the client's behalf.
+
+Local validation, 2026-10-19
+
+Apple M5, macOS, MoltenVK 1.4.2, SDL 3.4.18, debug build:
+
+  - Unmodified vkQuake reproduces SIGSEGV on the recorded late-BSP fixture.
+  - Patched vkQuake survives the same bounded fixture run.
+  - All ten generated cases pass bounded checks; the world-slot replacement
+    returns the expected recoverable error.
+  - Repeated replacement also passes with tasks, GPU lightmap updates, or
+    indirect draws disabled individually.
+  - LLDB confirms the old/new dynamic model-pointer behavior described above.
+  - The normal release build also passes the recorded runtime fixture and
+    generated repeated-replacement case.
+  - Isolated stock FTE connections pass with extensions enabled and disabled;
+    a live dm2 to dm3 map change also passes the 20-second bounded check.
+
+Detailed local results are under build/final-*. These are bounded smoke and
+debugger checks. Hardware ray-query acceleration structures cannot be exercised
+on this MoltenVK device; their ownership was reviewed in source.
