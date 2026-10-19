@@ -3,9 +3,10 @@ FTE model precache regression checks
 
 Problem
 
-With PEXT2_PREDINFO, FTE sends most models after serverinfo and before signon
-stage 1. Building vkQuake's renderer from serverinfo alone leaves the later
-brush models without lightmaps and vertex data. Rendering a stock health or
+FTE's NetQuake server sends only the world model in serverinfo when FTE2
+extensions are active. With PEXT2_PREDINFO, it sends the rest of the initial
+model list before signon stage 1. Building vkQuake's renderer from serverinfo
+alone leaves the later brush models without lightmaps and vertex data. Rendering a stock health or
 ammo box then dereferences a NULL lightmap in R_FlushBatch.
 
 Models can also arrive or be replaced during play. The fix batches brush
@@ -85,3 +86,43 @@ Apple M5, macOS, MoltenVK 1.4.2, SDL 3.4.18, debug build:
 Detailed local results are under build/final-*. These are bounded smoke and
 debugger checks. Hardware ray-query acceleration structures cannot be exercised
 on this MoltenVK device; their ownership was reviewed in source.
+
+Other server implementations, 2026-10-19
+
+The deferred initial list is FTE behavior, not a consequence of PEXT2_PREDINFO
+in every server. QSS, QSS-M and vkQuake normally include the initial models in
+serverinfo and append signon 1 in that same message. Captured QSS/QSS-M signons
+negotiated the same FTE2 mask, 0x28, as the original FTE reproduction.
+
+The rendering failure also reproduces without an FTE server. A small test mod
+using stock assets introduced maps/b_shell0.bsp three seconds after a client
+joined an unmodified QSS-M server. Baseline vkQuake crashed; the patched client
+survived its 10-second bounded run and rebuilt brush resources. An offline LLDB
+replay of that server's recording confirms R_FlushBatch received a NULL lightmap
+for maps/b_shell0.bsp with six indices queued.
+
+An unmodified vkQuake dedicated server also reproduces the crash using the
+implicit precache in its setmodel fallback; the patched client survives that
+case too. These are controlled test-mod cases, not stock deathmatch scenarios.
+Server code was not patched. Local sources, captures and results are retained
+under build/server-comparison/.
+
+QSS also delivered the runtime model precache, but its baseline bounded run
+did not crash and no brush draw was verified. It is not counted as another
+crash reproduction.
+
+Relevant server paths, pinned to the compared revisions:
+
+  QSS serverinfo/model list:
+  https://github.com/Shpoike/Quakespasm/blob/4c0c55f7830715cf8670f586c7be01ebce262d23/Quake/sv_main.c#L2081-L2120
+
+  QSS-M runtime model precache:
+  https://github.com/timbergeron/QSS-M/blob/21bbb2f510cf7683c5a500a18fe0dcbfe5a98328/Quake/pr_cmds.c#L1233-L1275
+
+  vkQuake implicit model precache:
+  https://github.com/Novum/vkQuake/blob/27789d7333a46674474d871137bb71e056719628/Quake/pr_cmds.c#L315-L328
+
+DarkPlaces also emits runtime svc_precache messages with newer DP protocols,
+but vkQuake does not decode those protocols. That comparison was source-only;
+it is not a vkQuake interoperability test. Plain QuakeSpasm sends its initial
+lists in serverinfo and has no equivalent FTE2 late-precache path.

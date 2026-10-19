@@ -1143,7 +1143,7 @@ static void CL_ParseServerInfo (void)
 	// local state
 	cl.entities[0].model = cl.worldmodel = cl.model_precache[1];
 
-	// With predinfo, the remaining model precaches arrive before signon 1.
+	// FTE's NetQuake server sends its initial precaches before signon 1 with predinfo.
 	if (!(cl.protocol_pext2 & PEXT2_PREDINFO))
 		R_NewMap ();
 
