@@ -979,6 +979,12 @@ int CL_ReadFromServer (void)
 		CL_ParseServerMessage ();
 	} while (ret && cls.state == ca_connected);
 
+	// Batch late BSP precaches before the next frame can submit rendering work.
+	if (cls.state == ca_connected && cls.signon >= 1 && cl.brushmodels_changed)
+		R_RebuildBrushModels (false);
+	if (cls.state == ca_connected && cls.signon >= 1 && cl.model_precache_changed)
+		CL_UpdatePrecacheModels ();
+
 	if (cl_shownet.value)
 		Con_Printf ("\n");
 
