@@ -260,6 +260,9 @@ void CL_SignonReply (void)
 	switch (cls.signon)
 	{
 	case 1:
+		if (cl.protocol_pext2 & PEXT2_PREDINFO)
+			R_NewMap ();
+
 		MSG_WriteByte (&cls.message, clc_stringcmd);
 		MSG_WriteString (&cls.message, va ("name \"%s\"\n", cl_name.string));
 

@@ -1106,7 +1106,9 @@ static void CL_ParseServerInfo (void)
 	// local state
 	cl.entities[0].model = cl.worldmodel = cl.model_precache[1];
 
-	R_NewMap ();
+	// With predinfo, the remaining model precaches arrive before signon 1.
+	if (!(cl.protocol_pext2 & PEXT2_PREDINFO))
+		R_NewMap ();
 
 	// johnfitz -- clear out string; we don't consider identical
 	// messages to be duplicates if the map has changed in between
